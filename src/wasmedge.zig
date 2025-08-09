@@ -71,11 +71,11 @@ pub const Configure = struct {
 
     const Self = @This();
 
-    pub fn init() error{ConfigureInitFail}!Self {
+    pub fn create() error{ConfigureInitFail}!Self {
         return Self{ .cxt = c.WasmEdge_ConfigureCreate() orelse return error.ConfigureInitFail };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn destroy(self: Self) void {
         c.WasmEdge_ConfigureDelete(self.cxt);
     }
 
@@ -114,6 +114,7 @@ pub const FunctionInstance = struct {
         data: ?*anyopaque,
         cost: u64,
     ) Self.Error!Self {
+        // const func_type = FunctionType.init(param_list: ?[]const ValType, return_list: ?[]const ValType)
         return Self{
             .cxt = c.WasmEdge_FunctionInstanceCreate(
                 fn_type.ctx,
@@ -128,14 +129,14 @@ pub const FunctionInstance = struct {
         c.WasmEdge_FunctionInstanceDelete(self.cxt);
     }
 
-    pub fn from_impl(function: anytype, cost: u64) !Self {
+    pub fn from_impl(function: anytype, data: ?*anyopaque, cost: u64) !Self {
         const fn_type = try FunctionType.from_impl(function);
         defer fn_type.delete();
         
         return init(
             fn_type,
             bindgen(function),
-            null,
+            data,
             cost,
         );
     }
@@ -147,13 +148,13 @@ pub const FunctionType = struct {
     const Self = @This();
     const Error = error{FunctionTypeInitFail};
 
-    pub fn init(param_list: ?[]const ValType, return_list: ?[]const ValType) Self.Error!Self {
+    pub fn init(param_list: []const ValType, return_list: []const ValType) Self.Error!Self {
         return Self{
             .ctx = c.WasmEdge_FunctionTypeCreate(
-                if (param_list) |p| @ptrCast(p.ptr) else null,
-                if (param_list) |p| @intCast(p.len) else 0,
-                if (return_list) |r| @ptrCast(r.ptr) else null,
-                if (return_list) |r| @intCast(r.len) else 0,
+                if (param_list.len != 0) @ptrCast(param_list.ptr) else null,
+                @intCast(param_list.len),
+                if (return_list.len != 0) @ptrCast(return_list.ptr) else null,
+                @intCast(return_list.len),
             ) orelse return error.FunctionTypeInitFail,
         };
     }
@@ -219,9 +220,11 @@ pub const ModuleInstance = struct {
         return Self{ .cxt = cxt };
     }
 
-    pub fn init(name: String) error{ModuleInstanceInitFail}!Self {
+    pub fn init(name: [*:0]const u8) error{ModuleInstanceInitFail}!Self {
+        const mod_name = String.ownedFromCString(name);
+        defer mod_name.delete();
         return Self{
-            .cxt = c.WasmEdge_ModuleInstanceCreate(name.impl) orelse return error.ModuleInstanceInitFail,
+            .cxt = c.WasmEdge_ModuleInstanceCreate(mod_name.impl) orelse return error.ModuleInstanceInitFail,
         };
     }
 
@@ -229,8 +232,10 @@ pub const ModuleInstance = struct {
         c.WasmEdge_ModuleInstanceDelete(self.cxt);
     }
 
-    pub fn addFunction(self: Self, name: String, func_instance: FunctionInstance) void {
-        c.WasmEdge_ModuleInstanceAddFunction(self.cxt, name.impl, func_instance.cxt);
+    pub fn addFunction(self: Self, name: [*:0]const u8, func_instance: FunctionInstance) void {
+        const func_name = String.ownedFromCString(name);
+        defer func_name.delete();
+        c.WasmEdge_ModuleInstanceAddFunction(self.cxt, func_name.impl, func_instance.cxt);
     }
 };
 
@@ -375,13 +380,15 @@ pub const VM = struct {
 
     pub fn execute(
         self: Self,
-        funcName: String,
+        funcName: [*:0]const u8,
         params: []const Value,
         returns: []Value,
     ) !void {
+        const func_name = String.ownedFromCString(funcName);
+        defer func_name.delete();
         try mapErr(c.WasmEdge_VMExecute(
             self.cxt,
-            funcName.impl,
+            func_name.impl,
             @ptrCast(params.ptr),
             @intCast(params.len),
             @ptrCast(returns.ptr),
@@ -407,14 +414,16 @@ pub const VM = struct {
     pub fn asyncRunWasmFromBuffer(
         self: Self,
         buf: []const u8,
-        funcName: String,
+        funcName: [*:0]const u8,
         params: []const Value,
     ) Async {
+        const func_name = String.ownedFromCString(funcName);
+        defer func_name.delete();
         return Async.wrap(c.WasmEdge_VMAsyncRunWasmFromBuffer(
             self.cxt,
             buf.ptr,
             @intCast(buf.len),
-            funcName.impl,
+            func_name.impl,
             @ptrCast(params.ptr),
             @intCast(params.len),
         ));
@@ -422,15 +431,17 @@ pub const VM = struct {
     pub fn runWasmFromBuffer(
         self: Self,
         buf: []const u8,
-        funcName: String,
+        funcName: [*:0]const u8,
         params: []const Value,
         returns: []Value,
     ) !void {
+        const func_name = String.ownedFromCString(funcName);
+        defer func_name.delete();
         try mapErr(c.WasmEdge_VMRunWasmFromBuffer(
             self.cxt,
             buf.ptr,
             @intCast(buf.len),
-            funcName.impl,
+            func_name.impl,
             @ptrCast(params.ptr),
             @intCast(params.len),
             @ptrCast(returns.ptr),
@@ -440,15 +451,17 @@ pub const VM = struct {
     pub fn runWasmFromFile(
         self: Self,
         path: []const u8,
-        funcName: String,
+        funcName: [*:0]const u8,
         params: []const Value,
         returns: []Value,
     ) !void {
+        const func_name = String.ownedFromCString(funcName);
+        defer func_name.delete();
         try mapErr(c.WasmEdge_VMRunWasmFromFile(
             self.cxt,
             path.ptr,
             @intCast(path.len),
-            funcName.impl,
+            func_name.impl,
             @ptrCast(params.ptr),
             @intCast(params.len),
             @ptrCast(returns.ptr),

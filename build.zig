@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSmall,
     });
     wasm.entry = .disabled;
-    wasm.root_module.export_symbol_names = &.{ "add" };
+    wasm.root_module.export_symbol_names = &.{ "add", "suspendable" };
     b.installArtifact(wasm);
 
     const exe = b.addExecutable(.{
@@ -27,6 +27,12 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addAnonymousImport("wasm_bin", .{
         .root_source_file = wasm.getEmittedBin()
     });
+
+    const libxev = b.dependency("libxev", .{}).module("xev");
+    exe.root_module.addImport("xev", libxev);
+
+    const libcoro = b.dependency("zigcoro", .{}).module("libcoro");
+    exe.root_module.addImport("libcoro", libcoro);
 
     b.installArtifact(exe);
 
